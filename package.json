@@ -1,0 +1,27 @@
+{
+  "name": "branch-sync",
+  "version": "1.0.0",
+  "description": "Atualiza uma lista de branches com a branch de produção de um repositório, pausando em conflitos e retomando após a resolução.",
+  "type": "module",
+  "bin": {
+    "branch-sync": "bin/cli.js",
+    "bsync": "bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node bin/cli.js",
+    "install:global": "npm install -g .",
+    "link:dev": "npm link"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^5.5.0",
+    "commander": "^12.1.0"
+  },
+  "license": "MIT"
+}

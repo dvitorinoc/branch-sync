@@ -1,0 +1,15 @@
+# Dependências
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Config/estado local do branch-sync (nunca versionar)
+config.json
+state.json
+
+# Sistema operacional / editores
+.DS_Store
+.idea/
+.vscode/
