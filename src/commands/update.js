@@ -374,9 +374,19 @@ function printProposalDiff(cwd, file, proposed) {
 }
 
 function renderMessage(template, branch, prod) {
-  return template
+  const rendered = template
     .replaceAll('{branch}', branch)
     .replaceAll('{prod}', prod);
+  // `git merge -m` não remove linhas de comentário como o editor faria; um
+  // template com linhas `#` as levaria literais para o commit. Removemos as
+  // linhas cujo primeiro caractere é `#` (comentário) e colapsamos as vazias
+  // resultantes nas bordas, imitando o cleanup padrão do git.
+  return rendered
+    .split('\n')
+    .filter((line) => !line.startsWith('#'))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 async function processQueue(
