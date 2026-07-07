@@ -273,7 +273,10 @@ export async function runConflictResolution(cwd, production, branch, files, pref
     return finalizeIgnoredFiles(cwd, production, branch, repo);
   }
 
-  const commit = tryGit(cwd, ['commit', '--no-edit']);
+  // --cleanup=strip remove as linhas de comentário `# Conflicts:` que o git
+  // acrescenta ao MERGE_MSG durante o conflito (--no-edit usa cleanup
+  // `whitespace`, que as manteria literais na mensagem do commit).
+  const commit = tryGit(cwd, ['commit', '--no-edit', '--cleanup=strip']);
   if (!commit.ok) {
     console.error(
       `✖ Todos os conflitos foram resolvidos, mas o commit do merge falhou:\n${commit.out}`,
@@ -326,7 +329,8 @@ export function finalizeIgnoredFiles(cwd, production, branch, repo) {
     return false;
   }
 
-  const commit = tryGit(cwd, ['commit', '--no-edit']);
+  // --cleanup=strip: ver nota em runConflictResolution (remove `# Conflicts:`).
+  const commit = tryGit(cwd, ['commit', '--no-edit', '--cleanup=strip']);
   if (!commit.ok) {
     console.error(
       `✖ Arquivos ignorados tratados, mas o commit do merge falhou:\n${commit.out}`,
