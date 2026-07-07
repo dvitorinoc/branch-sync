@@ -145,13 +145,22 @@ bsync explain --ai codex         # …com um provedor específico
   PATH, na ordem `claude`, `codex`).
 - O conteúdo do conflito é enviado embutido no prompt; com `--explain` nenhum
   arquivo é alterado.
-- Com `--resolve`, para **cada arquivo** em conflito a IA propõe o conteúdo
-  resolvido e **explica por que** resolveu daquele jeito (o que cada lado queria
-  e o que foi mantido, combinado ou descartado). A justificativa e o diff da
-  proposta são exibidos e você **confirma ou recusa**. Confirmou → o arquivo é
-  gravado e adicionado ao índice; recusou → ele continua em conflito para
-  resolução manual. Se todos os arquivos forem resolvidos, o merge é commitado
-  e a fila continua na mesma execução.
+- Com `--resolve`, abre um **revisor interativo**: uma lista dos arquivos em
+  conflito (com status resolvido/pendente e os ignorados marcados à parte) e, ao
+  escolher um arquivo, um menu de ações:
+  - **Ver proposta da IA** — a justificativa (por que resolveu assim) e o diff
+    colorido do que muda;
+  - **Aceitar proposta da IA** — grava o arquivo e adiciona ao índice;
+  - **Ver o conflito atual** — o arquivo com os marcadores destacados;
+  - **Abrir no editor** — edita no seu `$EDITOR`; ao salvar sem marcadores, é
+    adicionado ao índice;
+  - **Deixar para resolução manual** — mantém o conflito.
+
+  A proposta da IA é gerada **sob demanda** (só quando você pede para vê-la ou
+  aceitá-la), então arquivos que você edita ou pula não esperam pela IA. Quando
+  todos os conflitos "de verdade" são resolvidos, o merge é commitado e a fila
+  continua na mesma execução. Sem um provedor de IA no PATH, o revisor ainda
+  funciona — apenas sem as ações de proposta (ver conflito / editar / manual).
 - Falhas da IA (CLI ausente, timeout, proposta inválida etc.) apenas emitem um
   aviso e **não interrompem** o fluxo — o arquivo fica para resolução manual.
 - Com `--explain`/`--ai`/`--resolve` no `update`, a preferência é lembrada na
