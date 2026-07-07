@@ -7,20 +7,27 @@ branches, tudo persistido em arquivo de configuração JSON.
 
 ## Instalação
 
-Requer **Node.js >= 18**. Após clonar o repositório:
+Requer **Node.js >= 18**. Instale global a partir do npm:
+
+```bash
+npm install -g branch-sync
+```
+
+Isso instala **dois** comandos equivalentes no PATH: `branch-sync` e o alias
+curto `bsync`. Para conferir:
+
+```bash
+bsync --version
+```
+
+### A partir do código-fonte
+
+Para desenvolvimento ou para instalar de um clone local:
 
 ```bash
 cd branch-sync
 npm install               # instala as dependências
 npm install -g .          # disponibiliza os binários globais (branch-sync e bsync)
-```
-
-O `npm install -g .` instala **dois** comandos equivalentes no PATH: `branch-sync`
-e o alias curto `bsync`. Para conferir:
-
-```bash
-branch-sync --version
-bsync --version
 ```
 
 Atalhos de `npm scripts` (equivalentes aos comandos acima):

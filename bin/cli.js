@@ -1,10 +1,16 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { configPath } from '../src/config.js';
 import { repoAdd, repoRemove, repoList, repoIgnore } from '../src/commands/repo.js';
 import { branchAdd, branchRemove, branchList } from '../src/commands/branch.js';
 import { updateCommand } from '../src/commands/update.js';
 import { explainCommand } from '../src/commands/explain.js';
+
+const { version } = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+);
 
 const program = new Command();
 
@@ -13,7 +19,7 @@ program
   .description(
     'Atualiza uma lista de branches com a branch de produção de um repositório.',
   )
-  .version('1.0.0');
+  .version(version);
 
 // ---- repo ----
 const repo = program.command('repo').description('Gerencia repositórios.');

@@ -3,6 +3,26 @@
   "version": "1.0.0",
   "description": "Atualiza uma lista de branches com a branch de produção de um repositório, pausando em conflitos e retomando após a resolução.",
   "type": "module",
+  "author": "Douglas Carvalho <dvitorinoc@gmail.com>",
+  "homepage": "https://bitbucket.org/dvitorinoc/branch-sync#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://bitbucket.org/dvitorinoc/branch-sync.git"
+  },
+  "bugs": {
+    "url": "https://bitbucket.org/dvitorinoc/branch-sync/issues"
+  },
+  "keywords": [
+    "git",
+    "branch",
+    "merge",
+    "sync",
+    "cli",
+    "production",
+    "conflict",
+    "rebase",
+    "workflow"
+  ],
   "bin": {
     "branch-sync": "bin/cli.js",
     "bsync": "bin/cli.js"
