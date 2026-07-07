@@ -10,7 +10,7 @@ branches, tudo persistido em arquivo de configuração JSON.
 Requer **Node.js >= 18**. Instale global a partir do npm:
 
 ```bash
-npm install -g branch-sync
+npm install -g @dvitorinoc/branch-sync
 ```
 
 Isso instala **dois** comandos equivalentes no PATH: `branch-sync` e o alias
@@ -51,8 +51,8 @@ node bin/cli.js <args>    # ou: npm start -- <args>
 ### Atualizar
 
 ```bash
-npm update -g branch-sync         # respeita o range instalado
-npm install -g branch-sync@latest # força a última versão publicada
+npm update -g @dvitorinoc/branch-sync         # respeita o range instalado
+npm install -g @dvitorinoc/branch-sync@latest # força a última versão publicada
 ```
 
 Quando há uma versão nova no npm, o próprio CLI avisa no terminal (verificação
@@ -62,7 +62,7 @@ sendo manual — os comandos acima.
 ### Desinstalar
 
 ```bash
-npm uninstall -g branch-sync
+npm uninstall -g @dvitorinoc/branch-sync
 ```
 
 ## Uso

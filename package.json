@@ -1,6 +1,9 @@
 {
-  "name": "branch-sync",
+  "name": "@dvitorinoc/branch-sync",
   "version": "1.0.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Atualiza uma lista de branches com a branch de produção de um repositório, pausando em conflitos e retomando após a resolução.",
   "type": "module",
   "author": "Douglas Carvalho <dvitorinoc@gmail.com>",
