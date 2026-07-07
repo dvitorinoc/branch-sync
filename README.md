@@ -52,17 +52,17 @@ npm uninstall -g branch-sync
 ### Repositórios
 
 ```bash
-branch-sync repo add        # pergunta caminho, nome e branch de produção
-branch-sync repo list
-branch-sync repo remove [nome]
+bsync repo add        # pergunta caminho, nome e branch de produção
+bsync repo list
+bsync repo remove [nome]
 ```
 
 ### Branches monitoradas (vinculadas a um repositório)
 
 ```bash
-branch-sync branch add [branch] --repo <nome>   # sem args, abre seletor
-branch-sync branch remove [branch] --repo <nome>
-branch-sync branch list --repo <nome>
+bsync branch add [branch] --repo <nome>   # sem args, abre seletor
+bsync branch remove [branch] --repo <nome>
+bsync branch list --repo <nome>
 ```
 
 Sem `--repo`, se houver mais de um repositório, um prompt de seleção é exibido.
@@ -70,15 +70,15 @@ Sem `--repo`, se houver mais de um repositório, um prompt de seleção é exibi
 ### Atualizar
 
 ```bash
-branch-sync update <repo>     # direto pelo nome
-branch-sync update            # prompt para escolher o repositório
-branch-sync update --no-fetch # não sincroniza com o remoto antes de mesclar
-branch-sync update --no-push  # não faz push ao final (push é o padrão)
-branch-sync update -m "chore: sync {prod} → {branch}"   # mensagem do merge
-branch-sync update --explain  # em conflito, usa IA para explicar os conflitos
-branch-sync update --ai codex # idem, escolhendo o provedor (implica --explain)
-branch-sync update --resolve  # em conflito, a IA propõe a resolução e você confirma
-branch-sync update --abort    # cancela uma sincronização em andamento
+bsync update <repo>     # direto pelo nome
+bsync update            # prompt para escolher o repositório
+bsync update --no-fetch # não sincroniza com o remoto antes de mesclar
+bsync update --no-push  # não faz push ao final (push é o padrão)
+bsync update -m "chore: sync {prod} → {branch}"   # mensagem do merge
+bsync update --explain  # em conflito, usa IA para explicar os conflitos
+bsync update --ai codex # idem, escolhendo o provedor (implica --explain)
+bsync update --resolve  # em conflito, a IA propõe a resolução e você confirma
+bsync update --abort    # cancela uma sincronização em andamento
 ```
 
 O `update`:
@@ -96,7 +96,7 @@ O `update`:
    quando há merge commit (não em fast-forward).
 4. **Em caso de conflito**, para, lista os arquivos em conflito e salva o
    progresso. Resolva, faça `git commit` (ou `git merge --continue`) e rode
-   `branch-sync update` de novo — ele retoma da branch seguinte sem repetir as
+   `bsync update` de novo — ele retoma da branch seguinte sem repetir as
    já concluídas.
 5. **Ao final, faz push** de cada branch atualizada — apenas das que já têm
    **upstream** configurado (as locais-only são puladas com aviso). Use
@@ -116,11 +116,11 @@ Isso é **opcional** e depende de ter o CLI instalado:
 - [`codex`](https://developers.openai.com/codex/cli) (OpenAI Codex)
 
 ```bash
-branch-sync update --explain           # liga a análise (provedor: auto)
-branch-sync update --ai claude         # força um provedor (implica --explain)
-branch-sync update --resolve           # propõe resoluções, confirmando arquivo a arquivo
-branch-sync explain <repo>             # analisa o conflito atual sob demanda
-branch-sync explain --ai codex         # …com um provedor específico
+bsync update --explain           # liga a análise (provedor: auto)
+bsync update --ai claude         # força um provedor (implica --explain)
+bsync update --resolve           # propõe resoluções, confirmando arquivo a arquivo
+bsync explain <repo>             # analisa o conflito atual sob demanda
+bsync explain --ai codex         # …com um provedor específico
 ```
 
 - `--ai` aceita `claude`, `codex` ou `auto` (usa o primeiro CLI encontrado no
@@ -138,7 +138,7 @@ branch-sync explain --ai codex         # …com um provedor específico
   aviso e **não interrompem** o fluxo — o arquivo fica para resolução manual.
 - Com `--explain`/`--ai`/`--resolve` no `update`, a preferência é lembrada na
   retomada. Também dá para passar `--resolve` só na retomada: após um conflito,
-  rode `branch-sync update --resolve` para resolvê-lo com IA.
+  rode `bsync update --resolve` para resolvê-lo com IA.
 - O comando `explain` (sem `<repo>`) usa o repositório da sincronização em
   andamento; é útil para re-rodar a análise ou trocar de provedor.
 
@@ -150,12 +150,12 @@ Defina uma **lista de ignore** por repositório e o branch-sync não tenta
 resolvê-los (a IA nunca os recebe).
 
 ```bash
-branch-sync repo ignore '*.map' 'include/build/*'   # define a lista (substitui)
-branch-sync repo ignore                             # edita por prompt
-branch-sync repo ignore -r demo                     # escolhe o repo por -r/--repo
+bsync repo ignore '*.map' 'include/build/*'   # define a lista (substitui)
+bsync repo ignore                             # edita por prompt
+bsync repo ignore -r demo                     # escolhe o repo por -r/--repo
 ```
 
-Também dá para configurar na criação (`branch-sync repo add`) ou editando o
+Também dá para configurar na criação (`bsync repo add`) ou editando o
 `config.json` (campo `ignore`, veja abaixo). Os padrões seguem a semântica do
 **`.gitignore`**: sem barra (`*.map`) casa pelo nome em qualquer pasta; com barra
 (`include/build/*`) é ancorado na raiz; `*`/`**`/`?` e barra final também valem.
@@ -176,7 +176,7 @@ branch-sync avisa e pausa para resolução manual.
 ## Configuração
 
 Arquivo único em `~/.config/branch-sync/config.json` (veja com
-`branch-sync config`). Defina `BRANCH_SYNC_DIR` para usar outro diretório.
+`bsync config`). Defina `BRANCH_SYNC_DIR` para usar outro diretório.
 
 ```json
 {
