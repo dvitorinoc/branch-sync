@@ -2,15 +2,20 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
+import updateNotifier from 'update-notifier';
 import { configPath } from '../src/config.js';
 import { repoAdd, repoRemove, repoList, repoIgnore } from '../src/commands/repo.js';
 import { branchAdd, branchRemove, branchList } from '../src/commands/branch.js';
 import { updateCommand } from '../src/commands/update.js';
 import { explainCommand } from '../src/commands/explain.js';
 
-const { version } = JSON.parse(
+const pkg = JSON.parse(
   readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
 );
+const { version } = pkg;
+
+// Avisa (uma vez por dia, em segundo plano) quando há versão nova no npm.
+updateNotifier({ pkg }).notify();
 
 const program = new Command();
 

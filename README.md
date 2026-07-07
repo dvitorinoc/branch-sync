@@ -48,6 +48,17 @@ Sem instalar globalmente, dá para rodar direto do repositório:
 node bin/cli.js <args>    # ou: npm start -- <args>
 ```
 
+### Atualizar
+
+```bash
+npm update -g branch-sync         # respeita o range instalado
+npm install -g branch-sync@latest # força a última versão publicada
+```
+
+Quando há uma versão nova no npm, o próprio CLI avisa no terminal (verificação
+diária em segundo plano, via `update-notifier`). A atualização em si continua
+sendo manual — os comandos acima.
+
 ### Desinstalar
 
 ```bash
