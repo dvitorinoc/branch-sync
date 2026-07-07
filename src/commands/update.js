@@ -1,8 +1,7 @@
-import { writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, basename, extname } from 'node:path';
+import { writeFileSync, readFileSync } from 'node:fs';
+import { join, extname } from 'node:path';
 import { select, editor, Separator } from '@inquirer/prompts';
-import { bold, dim, red, green, yellow, cyan } from '../ui.js';
+import { bold, dim, red, green, yellow, cyan, termWidth, box, sideBySide } from '../ui.js';
 import {
   loadConfig,
   loadState,
@@ -404,15 +403,57 @@ function printConflictMarkers(cwd, file) {
   console.log('');
 }
 
-// Mostra a justificativa da IA (texto quebrado) e o diff da proposta.
+// Mostra a justificativa da IA e a tela de comparação (HEAD | PROD / sugestão).
 function printProposal(cwd, file, proposed) {
-  console.log(bold(cyan(`\n  Proposta da IA — ${file}`)));
+  console.log(bold(cyan(`\n  Comparação — ${file}`)));
   console.log(dim('  Por que resolver assim:'));
   const rationale = proposed.rationale || '(o provedor não explicou a escolha)';
-  for (const line of wrapText(rationale, 76)) console.log(`    ${line}`);
-  console.log(dim('  Alterações propostas (atual → proposta):'));
-  printProposalDiff(cwd, file, proposed.content);
+  for (const line of wrapText(rationale, Math.min(96, termWidth()) - 4)) {
+    console.log(`    ${line}`);
+  }
   console.log('');
+  printCompare(cwd, file, proposed.content.replace(/\n$/, '').split('\n'));
+  console.log('');
+}
+
+// Evita despejar arquivos enormes na tela: corta a exibição e sinaliza o corte.
+function capLines(lines, max = 200) {
+  if (lines.length <= max) return lines;
+  return [...lines.slice(0, max), `… (+${lines.length - max} linha(s))`];
+}
+
+// Conteúdo de um lado do conflito a partir do índice: stage 2 = HEAD (atual),
+// stage 3 = produção. Retorna as linhas (cortadas) ou um aviso se o lado não
+// tem o arquivo (ex.: conflito de add/delete).
+function stageLines(cwd, stage, file) {
+  const r = tryGit(cwd, ['show', `:${stage}:${file}`]);
+  if (!r.ok) return ['(este lado não tem o arquivo)'];
+  return capLines(r.out.replace(/\n$/, '').split('\n'));
+}
+
+// Tela de comparação: HEAD (atual) e PROD (produção) lado a lado em cima, e a
+// sugestão da IA embaixo ocupando a largura toda. Em terminais estreitos
+// (< 48 colunas) empilha as três caixas.
+function printCompare(cwd, file, suggestion) {
+  const width = termWidth();
+  const head = stageLines(cwd, 2, file);
+  const prod = stageLines(cwd, 3, file);
+  const sugg = capLines(suggestion);
+
+  if (width < 48) {
+    for (const l of box('HEAD (atual)', head, width, red)) console.log(l);
+    for (const l of box('PROD (produção)', prod, width, green)) console.log(l);
+    for (const l of box('Sugestão da IA', sugg, width, cyan)) console.log(l);
+    return;
+  }
+
+  const gap = 2;
+  const wA = Math.floor((width - gap) / 2);
+  const wB = width - gap - wA;
+  const boxA = box('HEAD (atual)', head, wA, red);
+  const boxB = box('PROD (produção)', prod, wB, green);
+  for (const l of sideBySide(boxA, wA, boxB, wB, gap)) console.log(l);
+  for (const l of box('Sugestão da IA', sugg, width, cyan)) console.log(l);
 }
 
 // Conclui o merge quando os ÚNICOS conflitos restantes são arquivos ignorados:
@@ -489,20 +530,6 @@ function wrapText(text, width) {
     out.push(line);
   }
   return out.length ? out : [''];
-}
-
-// Mostra o diff entre o arquivo em conflito e a proposta da IA.
-function printProposalDiff(cwd, file, proposed) {
-  const dir = mkdtempSync(join(tmpdir(), 'branch-sync-resolve-'));
-  try {
-    const tmp = join(dir, basename(file));
-    writeFileSync(tmp, proposed);
-    // --no-index sai com código != 0 quando há diferenças; por isso tryGit.
-    const d = tryGit(cwd, ['diff', '--no-index', '--color', '--', file, tmp]);
-    console.log(d.out || '(a proposta é idêntica ao arquivo atual)');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 }
 
 function renderMessage(template, branch, prod) {
