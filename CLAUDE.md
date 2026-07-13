@@ -52,6 +52,9 @@ ESM (`"type": "module"`). Camadas:
   conflito **não** devem ser resolvidos (ex.: `*.map`, `include/build/*`).
 - `src/build.js` — `runBuild(cwd, command)` roda o comando de build do repo com a saída
   ao vivo, usado para regerar os arquivos ignorados — ver o núcleo do `update`.
+- `src/ui.js` — **apresentação no terminal**. Helpers de cor ANSI (`bold`, `dim`, `red`,
+  `green`, `yellow`, `cyan`, `gray`) com fallback automático quando não há TTY ou quando
+  `NO_COLOR` está definido. Sem dependência externa (o projeto evita libs de estilo).
 - `src/commands/{repo,branch,update,explain}.js` — lógica de cada comando. `repo.js`
   exporta `resolveRepo()`, reutilizado pelos demais para resolver o repositório por
   argumento ou por prompt de seleção. `explain.js` reusa `runConflictExplanation()`
@@ -64,8 +67,12 @@ ESM (`"type": "module"`). Camadas:
   resposta — uma **justificativa** e o conteúdo completo do arquivo resolvido, separados
   por um marcador sentinela (`RESOLVE_SENTINEL`); retorna `{ content, rationale }` e valida
   (marcador presente, resposta não-vazia, sem marcadores de conflito, cerca de código
-  removida). A proposta **só é aplicada após confirmação do usuário**, no chamador, que
-  exibe a justificativa (com `wrapText`) e o diff antes de perguntar.
+  removida). A proposta **só é aplicada após confirmação do usuário**, no chamador
+  (`runConflictResolution`), que apresenta um **revisor interativo** (`@inquirer` `select`):
+  para cada arquivo em conflito, um menu (ver proposta da IA com justificativa+diff / aceitar /
+  ver o conflito com marcadores destacados / abrir no editor / deixar manual). A proposta da
+  IA é gerada **sob demanda e cacheada** — arquivos editados/pulados nunca esperam pela IA.
+  A justificativa é quebrada com `wrapText` e o diff sai colorido.
   Toda falha é tratada como opcional: a IA **nunca** deve interromper o fluxo de
   resolução — os chamadores (`runConflictExplanation`/`runConflictResolution`) capturam
   erros e só emitem aviso, deixando o arquivo em conflito para resolução manual.
@@ -104,10 +111,13 @@ Pontos sutis a preservar:
   quebra a retomada. Se a resolução completa o merge, a fila **continua na mesma
   execução** (o `state.json` fica momentaneamente defasado, mas com semântica correta
   para retomada; ele é regravado no próximo conflito ou limpo ao final).
-- Ordem dentro do loop, **por branch**: checkout → (se `fetch` e tem upstream)
-  `merge --ff-only @{upstream}` para sincronizar com o remoto → merge da produção.
-  A divergência real (ff-only falha) **aborta antes de mesclar**, sem salvar estado
-  (re-rodar refaz as concluídas como no-op).
+- Ordem dentro do loop, **por branch**: checkout → (se tem upstream)
+  `git pull --ff-only` para sincronizar a branch receptora com o remoto → merge
+  da produção. Esse pull é **sempre feito** (mesmo com `--no-fetch`, que só afeta
+  o fetch global e a sincronização da produção): garante que o merge da produção
+  parta do estado remoto atual da branch. A divergência real (ff-only falha, ou
+  falha de rede no pull) **aborta antes de mesclar**, sem salvar estado (re-rodar
+  refaz as concluídas como no-op).
 - **Push é por último**, só ao esvaziar a fila, e só de branches com upstream. Acontece
   *depois* de `clearState()`, então uma falha de push não corrompe o estado de retomada.
 - **Arquivos ignorados** (`repo.ignore`, casados por `matchIgnored`): arquivos gerados

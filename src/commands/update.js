@@ -1,7 +1,7 @@
-import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, basename } from 'node:path';
-import { confirm } from '@inquirer/prompts';
+import { writeFileSync, readFileSync } from 'node:fs';
+import { join, extname } from 'node:path';
+import { select, editor, Separator } from '@inquirer/prompts';
+import { bold, dim, red, green, yellow, cyan, termWidth, box, sideBySide, clearScreen } from '../ui.js';
 import {
   loadConfig,
   loadState,
@@ -190,69 +190,21 @@ export async function runConflictResolution(cwd, production, branch, files, pref
   const patterns = ignorePatternsFor(repo);
   const ignored = matchIgnored(files, patterns);
   const sourceFiles = files.filter((f) => !ignored.includes(f));
-  if (ignored.length) {
-    console.log(
-      `\n↷ ${ignored.length} arquivo(s) ignorado(s), não resolvidos pela IA: ${ignored.join(', ')}`,
-    );
-  }
+
+  printConflictOverview(production, branch, sourceFiles, ignored);
 
   if (sourceFiles.length) {
-    let resolved;
+    // O provedor de IA é OPCIONAL no revisor: se estiver ausente, somem as
+    // ações de "proposta da IA", mas ver o conflito, editar e deixar manual
+    // continuam disponíveis. Uma falha aqui nunca interrompe a revisão.
+    let provider = null;
     try {
-      resolved = resolveProvider(preferred);
+      const resolved = resolveProvider(preferred);
+      provider = resolved ? resolved.provider : null;
     } catch (e) {
-      console.error(`⚠ Resolução por IA indisponível: ${e.message}`);
-      return false;
+      console.error(dim(`⚠ Propostas por IA indisponíveis: ${e.message}`));
     }
-    if (!resolved) return false;
-
-    console.log(
-      `\n🤖 Gerando propostas de resolução com IA (${resolved.provider.label})… ` +
-        'isso pode levar alguns segundos por arquivo.',
-    );
-
-    for (const file of sourceFiles) {
-      // Feedback por arquivo: sem isto, a chamada à IA parece "travada".
-      console.log(`\n→ Analisando "${file}" com IA…`);
-      let proposed;
-      try {
-        proposed = resolveConflictFile({
-          cwd,
-          production,
-          branch,
-          file,
-          provider: resolved.provider,
-        });
-      } catch (e) {
-        // Arquivo grande demais ou resposta inválida: não trava o fluxo —
-        // avisa, pula para o próximo e deixa este para resolução manual.
-        console.error(
-          `  ⚠ sem proposta automática (${e.message}). "${file}" continua em conflito para resolução manual.`,
-        );
-        continue;
-      }
-
-      const width = 60;
-      console.log(`\n┌─ Proposta para ${file} ${'─'.repeat(Math.max(0, width - 18 - file.length))}`);
-      console.log('│ Por que resolver assim:');
-      const rationale = proposed.rationale || '(o provedor não explicou a escolha)';
-      for (const line of wrapText(rationale, width - 2)) console.log(`│   ${line}`);
-      console.log(`├─ Alterações propostas ${'─'.repeat(Math.max(0, width - 23))}`);
-      printProposalDiff(cwd, file, proposed.content);
-      console.log(`└${'─'.repeat(width)}`);
-
-      const apply = await confirm({
-        message: `Aplicar a resolução proposta em "${file}"?`,
-        default: false,
-      });
-      if (!apply) {
-        console.log(`  ↷ descartada — "${file}" continua em conflito.`);
-        continue;
-      }
-      writeFileSync(join(cwd, file), proposed.content);
-      git(cwd, ['add', '--', file]);
-      console.log(`  ✔ aplicada — "${file}" resolvido e adicionado ao índice.`);
-    }
+    await reviewConflicts(cwd, production, branch, sourceFiles, ignored, provider);
   }
 
   // Só restam conflitos "de verdade" (não-ignorados)? Pausa para resolução manual.
@@ -285,6 +237,241 @@ export async function runConflictResolution(cwd, production, branch, files, pref
   }
   console.log(`\n✔ Conflitos resolvidos; merge de "${production}" em "${branch}" concluído.`);
   return true;
+}
+
+// Valor sentinela para a opção "concluir" no menu de arquivos (um Symbol nunca
+// colide com um caminho de arquivo real).
+const DONE = Symbol('concluir-revisao');
+
+// Cabeçalho + lista visual dos arquivos em conflito, distinguindo os que serão
+// resolvidos dos ignorados (tratados automaticamente ao final).
+function printConflictOverview(production, branch, sourceFiles, ignored) {
+  console.log(
+    `\n${bold(cyan('⏸  Revisão de conflitos'))}  ${dim(`${production} → ${branch}`)}`,
+  );
+  for (const f of sourceFiles) {
+    console.log(`  ${yellow('●')} ${f}  ${dim('em conflito')}`);
+  }
+  for (const f of ignored) {
+    console.log(`  ${dim(`○ ${f}  (ignorado — tratado automaticamente)`)}`);
+  }
+}
+
+function statusIcon(status) {
+  if (status === 'resolved') return green('✔');
+  if (status === 'manual') return dim('↷');
+  return yellow('●');
+}
+
+// Cabeçalho compacto reimpresso a cada volta à lista (após limpar a tela): só o
+// título e os arquivos ignorados. A lista viva dos arquivos em conflito é o
+// próprio menu `select`, com ícones de status — não repetimos aqui.
+function printReviewHeader(production, branch, ignored) {
+  console.log(
+    `\n${bold(cyan('⏸  Revisão de conflitos'))}  ${dim(`${production} → ${branch}`)}`,
+  );
+  for (const f of ignored) {
+    console.log(`  ${dim(`○ ${f}  (ignorado — tratado automaticamente)`)}`);
+  }
+}
+
+// Revisor interativo: lista os conflitos, deixa o usuário escolher um arquivo e,
+// para cada um, ver a proposta da IA / o conflito, aceitar, editar ou deixar
+// manual. A proposta da IA é gerada sob demanda (lazy) e cacheada — arquivos que
+// o usuário edita/pula nunca esperam pela IA. Não lança (exceto Ctrl+C, que o
+// bin trata): o estado do merge já foi salvo antes desta chamada.
+async function reviewConflicts(cwd, production, branch, sourceFiles, ignored, provider) {
+  const status = new Map(sourceFiles.map((f) => [f, 'pending'])); // pending|resolved|manual
+  const proposals = new Map(); // file -> proposta | Error (cache; erro não re-tenta)
+
+  const getProposal = (file) => {
+    if (!provider) return null;
+    const cached = proposals.get(file);
+    if (cached) return cached instanceof Error ? null : cached;
+    process.stdout.write(dim(`  → consultando ${provider.label} para "${file}"…\n`));
+    try {
+      const p = resolveConflictFile({ cwd, production, branch, file, provider });
+      proposals.set(file, p);
+      return p;
+    } catch (e) {
+      // Falha da IA nunca trava: cacheia o erro e segue (o usuário edita/pula).
+      proposals.set(file, e instanceof Error ? e : new Error(String(e)));
+      console.error(dim(`  ⚠ sem proposta automática (${e.message}).`));
+      return null;
+    }
+  };
+
+  for (;;) {
+    const pending = sourceFiles.filter((f) => status.get(f) !== 'resolved');
+    if (!pending.length) break; // tudo resolvido → conclui no chamador
+
+    // Limpa a tela a cada volta à lista: as saídas do arquivo anterior
+    // (proposta, diff, marcadores) não se acumulam. O cabeçalho é reimpresso
+    // para manter o contexto (produção → branch e arquivos ignorados).
+    clearScreen();
+    printReviewHeader(production, branch, ignored);
+
+    const resolvedCount = sourceFiles.length - pending.length;
+    const choices = sourceFiles.map((f) => ({
+      name: `${statusIcon(status.get(f))} ${f}`,
+      value: f,
+      disabled: status.get(f) === 'resolved' ? green('resolvido') : false,
+    }));
+    choices.push(new Separator());
+    choices.push({ name: dim('concluir revisão'), value: DONE });
+
+    const file = await select({
+      message:
+        `Conflitos — ${green(`${resolvedCount} resolvido(s)`)}, ` +
+        `${yellow(`${pending.length} pendente(s)`)}`,
+      choices,
+      pageSize: Math.min(12, choices.length),
+    });
+    if (file === DONE) break;
+
+    await reviewOneFile(cwd, file, status, getProposal, Boolean(provider));
+  }
+}
+
+// Menu de ações de um único arquivo em conflito. Volta ao chamador (à lista)
+// quando o arquivo é resolvido, deixado manual, ou o usuário pede para voltar.
+async function reviewOneFile(cwd, file, status, getProposal, aiAvailable) {
+  for (;;) {
+    const actions = [];
+    if (aiAvailable) {
+      actions.push({ name: '🤖 Ver proposta da IA (justificativa + diff)', value: 'proposal' });
+      actions.push({ name: '✔  Aceitar proposta da IA', value: 'accept' });
+    }
+    actions.push({ name: '🔍 Ver o conflito atual (marcadores)', value: 'conflict' });
+    actions.push({ name: '✏️  Abrir no editor', value: 'edit' });
+    actions.push({ name: '↷  Deixar para resolução manual', value: 'manual' });
+    actions.push(new Separator());
+    actions.push({ name: dim('← voltar à lista'), value: 'back' });
+
+    const action = await select({ message: `${bold(file)} — o que fazer?`, choices: actions });
+
+    if (action === 'back') return;
+    if (action === 'manual') {
+      status.set(file, 'manual');
+      console.log(dim(`  ↷ "${file}" deixado para resolução manual.`));
+      return;
+    }
+    if (action === 'conflict') {
+      printConflictMarkers(cwd, file);
+      continue;
+    }
+    if (action === 'proposal') {
+      const p = getProposal(file);
+      if (p) printProposal(cwd, file, p);
+      continue;
+    }
+    if (action === 'accept') {
+      const p = getProposal(file);
+      if (!p) continue; // aviso já emitido por getProposal
+      writeFileSync(join(cwd, file), p.content);
+      git(cwd, ['add', '--', file]);
+      status.set(file, 'resolved');
+      console.log(green(`  ✔ "${file}" resolvido com a proposta da IA e adicionado ao índice.`));
+      return;
+    }
+    if (action === 'edit') {
+      if (await editConflictFile(cwd, file)) {
+        status.set(file, 'resolved');
+        return;
+      }
+      // ainda há marcadores: permanece no menu do arquivo
+    }
+  }
+}
+
+// Abre o arquivo no editor do usuário ($EDITOR/$VISUAL). Ao salvar, grava o
+// conteúdo; se não restarem marcadores de conflito, adiciona ao índice e conclui.
+async function editConflictFile(cwd, file) {
+  const path = join(cwd, file);
+  const edited = await editor({
+    message: `Edite "${file}" e salve para resolver`,
+    default: readFileSync(path, 'utf8'),
+    postfix: extname(file) || '.txt',
+    waitForUseInput: false,
+  });
+  writeFileSync(path, edited);
+  if (/^(<{7}|={7}|>{7})/m.test(edited)) {
+    console.error(
+      yellow(`  ⚠ "${file}" ainda tem marcadores de conflito (<<<<<<<, =======, >>>>>>>) — não marcado como resolvido.`),
+    );
+    return false;
+  }
+  git(cwd, ['add', '--', file]);
+  console.log(green(`  ✔ "${file}" editado (sem marcadores) e adicionado ao índice.`));
+  return true;
+}
+
+// Imprime o arquivo em conflito com os marcadores destacados (ours em vermelho,
+// theirs em verde), para inspeção rápida sem sair do revisor.
+function printConflictMarkers(cwd, file) {
+  const content = readFileSync(join(cwd, file), 'utf8');
+  console.log(dim(`\n  ── ${file} ──`));
+  for (const line of content.split('\n')) {
+    if (/^<{7}/.test(line)) console.log(`  ${red(line)}`);
+    else if (/^\|{7}/.test(line)) console.log(`  ${dim(line)}`);
+    else if (/^={7}/.test(line)) console.log(`  ${dim(line)}`);
+    else if (/^>{7}/.test(line)) console.log(`  ${green(line)}`);
+    else console.log(`  ${line}`);
+  }
+  console.log('');
+}
+
+// Mostra a justificativa da IA e a tela de comparação (HEAD | PROD / sugestão).
+function printProposal(cwd, file, proposed) {
+  console.log(bold(cyan(`\n  Comparação — ${file}`)));
+  console.log(dim('  Por que resolver assim:'));
+  const rationale = proposed.rationale || '(o provedor não explicou a escolha)';
+  for (const line of wrapText(rationale, Math.min(96, termWidth()) - 4)) {
+    console.log(`    ${line}`);
+  }
+  console.log('');
+  printCompare(cwd, file, proposed.content.replace(/\n$/, '').split('\n'));
+  console.log('');
+}
+
+// Evita despejar arquivos enormes na tela: corta a exibição e sinaliza o corte.
+function capLines(lines, max = 200) {
+  if (lines.length <= max) return lines;
+  return [...lines.slice(0, max), `… (+${lines.length - max} linha(s))`];
+}
+
+// Conteúdo de um lado do conflito a partir do índice: stage 2 = HEAD (atual),
+// stage 3 = produção. Retorna as linhas (cortadas) ou um aviso se o lado não
+// tem o arquivo (ex.: conflito de add/delete).
+function stageLines(cwd, stage, file) {
+  const r = tryGit(cwd, ['show', `:${stage}:${file}`]);
+  if (!r.ok) return ['(este lado não tem o arquivo)'];
+  return capLines(r.out.replace(/\n$/, '').split('\n'));
+}
+
+// Tela de comparação: HEAD (atual) e PROD (produção) lado a lado em cima, e a
+// sugestão da IA embaixo ocupando a largura toda. Em terminais estreitos
+// (< 48 colunas) empilha as três caixas.
+function printCompare(cwd, file, suggestion) {
+  const width = termWidth();
+  const head = stageLines(cwd, 2, file);
+  const prod = stageLines(cwd, 3, file);
+  const sugg = capLines(suggestion);
+
+  if (width < 48) {
+    for (const l of box('HEAD (atual)', head, width, red)) console.log(l);
+    for (const l of box('PROD (produção)', prod, width, green)) console.log(l);
+    for (const l of box('Sugestão da IA', sugg, width, cyan)) console.log(l);
+    return;
+  }
+
+  const gap = 2;
+  const wA = Math.floor((width - gap) / 2);
+  const wB = width - gap - wA;
+  const boxA = box('HEAD (atual)', head, wA, red);
+  const boxB = box('PROD (produção)', prod, wB, green);
+  for (const l of sideBySide(boxA, wA, boxB, wB, gap)) console.log(l);
+  for (const l of box('Sugestão da IA', sugg, width, cyan)) console.log(l);
 }
 
 // Conclui o merge quando os ÚNICOS conflitos restantes são arquivos ignorados:
@@ -361,20 +548,6 @@ function wrapText(text, width) {
     out.push(line);
   }
   return out.length ? out : [''];
-}
-
-// Mostra o diff entre o arquivo em conflito e a proposta da IA.
-function printProposalDiff(cwd, file, proposed) {
-  const dir = mkdtempSync(join(tmpdir(), 'branch-sync-resolve-'));
-  try {
-    const tmp = join(dir, basename(file));
-    writeFileSync(tmp, proposed);
-    // --no-index sai com código != 0 quando há diferenças; por isso tryGit.
-    const d = tryGit(cwd, ['diff', '--no-index', '--color', '--', file, tmp]);
-    console.log(d.out || '(a proposta é idêntica ao arquivo atual)');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 }
 
 function renderMessage(template, branch, prod) {
@@ -457,21 +630,28 @@ async function processQueue(
     console.log(`\n→ ${branch}  ⬅  ${production}`);
     git(cwd, ['checkout', branch]);
 
-    // Sincroniza a branch com seu upstream antes de mesclar (fast-forward).
-    if (fetch && hasUpstream(cwd, branch)) {
+    // Sincroniza a branch receptora com o remoto ANTES de mesclar: SEMPRE
+    // (mesmo com --no-fetch) faz `git pull --ff-only`, garantindo que o merge da
+    // produção parta do estado remoto atual da branch. Só quando há upstream
+    // configurado. `--ff-only` recusa (sem mesclar) se a branch divergiu do
+    // remoto — abortamos antes de tocar na produção.
+    if (hasUpstream(cwd, branch)) {
       const up = upstreamRef(cwd, branch);
-      const ff = tryGit(cwd, ['merge', '--ff-only', up]);
-      if (!ff.ok) {
-        // Não dá para avançar: a branch local divergiu do remoto.
+      const pull = tryGit(cwd, ['pull', '--ff-only']);
+      if (!pull.ok) {
+        // Não avançou: divergência (commits locais e remotos distintos) ou
+        // falha de rede ao buscar o remoto.
         console.error(
-          `\n✖ "${branch}" divergiu de "${up}" (há commits locais e remotos distintos).\n` +
+          `\n✖ Não foi possível sincronizar "${branch}" com "${up}" (git pull --ff-only falhou).\n` +
+            (pull.out ? `\n${pull.out}\n\n` : '') +
+            `   Pode ser divergência (commits locais e remotos distintos) ou falha de rede.\n` +
             `   Reconcilie manualmente (git pull --rebase, ou merge) e rode "branch-sync update" de novo.\n` +
             `   Branches já concluídas nesta execução: ${completed.length ? completed.join(', ') : '(nenhuma)'} — serão refeitas (no-op) na re-execução.`,
         );
         process.exit(1);
       }
-      if (!ff.out.includes('Already up to date')) {
-        console.log(`  ↻ avançada para ${up}`);
+      if (!/Already up to date|Já atualizado/.test(pull.out)) {
+        console.log(`  ↻ sincronizada com ${up}`);
       }
     }
 
@@ -509,10 +689,20 @@ async function processQueue(
       const files = conflictedFiles(cwd);
       // Arquivos ignorados (ex.: *.map) não entram na análise/resolução por IA.
       const sourceFiles = files.filter((f) => !matchIgnored(files, ignorePatternsFor(repo)).includes(f));
-      console.error(`\n⏸  Conflito ao mesclar "${production}" em "${branch}".`);
-      if (files.length) {
-        console.error('   Arquivos em conflito:');
-        for (const f of files) console.error(`     - ${f}`);
+      // Com --resolve, o revisor exibe seu próprio cabeçalho e lista
+      // (printConflictOverview); aqui cuidamos só do fluxo sem resolução,
+      // distinguindo os arquivos ignorados dos que precisam de resolução.
+      if (!resolve) {
+        console.error(
+          `\n${bold(cyan(`⏸  Conflito ao mesclar "${production}" em "${branch}".`))}`,
+        );
+        if (files.length) {
+          console.error('   Arquivos em conflito:');
+          for (const f of files) {
+            if (sourceFiles.includes(f)) console.error(`     ${yellow('●')} ${f}`);
+            else console.error(`     ${dim(`○ ${f} (ignorado)`)}`);
+          }
+        }
       }
       if (explain && sourceFiles.length) {
         runConflictExplanation(cwd, production, branch, sourceFiles, ai);
