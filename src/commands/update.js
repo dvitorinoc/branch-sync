@@ -1,7 +1,7 @@
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { select, editor, Separator } from '@inquirer/prompts';
-import { bold, dim, red, green, yellow, cyan, termWidth, box, sideBySide } from '../ui.js';
+import { bold, dim, red, green, yellow, cyan, termWidth, box, sideBySide, clearScreen } from '../ui.js';
 import {
   loadConfig,
   loadState,
@@ -204,7 +204,7 @@ export async function runConflictResolution(cwd, production, branch, files, pref
     } catch (e) {
       console.error(dim(`⚠ Propostas por IA indisponíveis: ${e.message}`));
     }
-    await reviewConflicts(cwd, production, branch, sourceFiles, provider);
+    await reviewConflicts(cwd, production, branch, sourceFiles, ignored, provider);
   }
 
   // Só restam conflitos "de verdade" (não-ignorados)? Pausa para resolução manual.
@@ -263,12 +263,24 @@ function statusIcon(status) {
   return yellow('●');
 }
 
+// Cabeçalho compacto reimpresso a cada volta à lista (após limpar a tela): só o
+// título e os arquivos ignorados. A lista viva dos arquivos em conflito é o
+// próprio menu `select`, com ícones de status — não repetimos aqui.
+function printReviewHeader(production, branch, ignored) {
+  console.log(
+    `\n${bold(cyan('⏸  Revisão de conflitos'))}  ${dim(`${production} → ${branch}`)}`,
+  );
+  for (const f of ignored) {
+    console.log(`  ${dim(`○ ${f}  (ignorado — tratado automaticamente)`)}`);
+  }
+}
+
 // Revisor interativo: lista os conflitos, deixa o usuário escolher um arquivo e,
 // para cada um, ver a proposta da IA / o conflito, aceitar, editar ou deixar
 // manual. A proposta da IA é gerada sob demanda (lazy) e cacheada — arquivos que
 // o usuário edita/pula nunca esperam pela IA. Não lança (exceto Ctrl+C, que o
 // bin trata): o estado do merge já foi salvo antes desta chamada.
-async function reviewConflicts(cwd, production, branch, sourceFiles, provider) {
+async function reviewConflicts(cwd, production, branch, sourceFiles, ignored, provider) {
   const status = new Map(sourceFiles.map((f) => [f, 'pending'])); // pending|resolved|manual
   const proposals = new Map(); // file -> proposta | Error (cache; erro não re-tenta)
 
@@ -292,6 +304,12 @@ async function reviewConflicts(cwd, production, branch, sourceFiles, provider) {
   for (;;) {
     const pending = sourceFiles.filter((f) => status.get(f) !== 'resolved');
     if (!pending.length) break; // tudo resolvido → conclui no chamador
+
+    // Limpa a tela a cada volta à lista: as saídas do arquivo anterior
+    // (proposta, diff, marcadores) não se acumulam. O cabeçalho é reimpresso
+    // para manter o contexto (produção → branch e arquivos ignorados).
+    clearScreen();
+    printReviewHeader(production, branch, ignored);
 
     const resolvedCount = sourceFiles.length - pending.length;
     const choices = sourceFiles.map((f) => ({
@@ -612,21 +630,28 @@ async function processQueue(
     console.log(`\n→ ${branch}  ⬅  ${production}`);
     git(cwd, ['checkout', branch]);
 
-    // Sincroniza a branch com seu upstream antes de mesclar (fast-forward).
-    if (fetch && hasUpstream(cwd, branch)) {
+    // Sincroniza a branch receptora com o remoto ANTES de mesclar: SEMPRE
+    // (mesmo com --no-fetch) faz `git pull --ff-only`, garantindo que o merge da
+    // produção parta do estado remoto atual da branch. Só quando há upstream
+    // configurado. `--ff-only` recusa (sem mesclar) se a branch divergiu do
+    // remoto — abortamos antes de tocar na produção.
+    if (hasUpstream(cwd, branch)) {
       const up = upstreamRef(cwd, branch);
-      const ff = tryGit(cwd, ['merge', '--ff-only', up]);
-      if (!ff.ok) {
-        // Não dá para avançar: a branch local divergiu do remoto.
+      const pull = tryGit(cwd, ['pull', '--ff-only']);
+      if (!pull.ok) {
+        // Não avançou: divergência (commits locais e remotos distintos) ou
+        // falha de rede ao buscar o remoto.
         console.error(
-          `\n✖ "${branch}" divergiu de "${up}" (há commits locais e remotos distintos).\n` +
+          `\n✖ Não foi possível sincronizar "${branch}" com "${up}" (git pull --ff-only falhou).\n` +
+            (pull.out ? `\n${pull.out}\n\n` : '') +
+            `   Pode ser divergência (commits locais e remotos distintos) ou falha de rede.\n` +
             `   Reconcilie manualmente (git pull --rebase, ou merge) e rode "branch-sync update" de novo.\n` +
             `   Branches já concluídas nesta execução: ${completed.length ? completed.join(', ') : '(nenhuma)'} — serão refeitas (no-op) na re-execução.`,
         );
         process.exit(1);
       }
-      if (!ff.out.includes('Already up to date')) {
-        console.log(`  ↻ avançada para ${up}`);
+      if (!/Already up to date|Já atualizado/.test(pull.out)) {
+        console.log(`  ↻ sincronizada com ${up}`);
       }
     }
 

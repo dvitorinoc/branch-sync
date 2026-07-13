@@ -111,10 +111,13 @@ Pontos sutis a preservar:
   quebra a retomada. Se a resolução completa o merge, a fila **continua na mesma
   execução** (o `state.json` fica momentaneamente defasado, mas com semântica correta
   para retomada; ele é regravado no próximo conflito ou limpo ao final).
-- Ordem dentro do loop, **por branch**: checkout → (se `fetch` e tem upstream)
-  `merge --ff-only @{upstream}` para sincronizar com o remoto → merge da produção.
-  A divergência real (ff-only falha) **aborta antes de mesclar**, sem salvar estado
-  (re-rodar refaz as concluídas como no-op).
+- Ordem dentro do loop, **por branch**: checkout → (se tem upstream)
+  `git pull --ff-only` para sincronizar a branch receptora com o remoto → merge
+  da produção. Esse pull é **sempre feito** (mesmo com `--no-fetch`, que só afeta
+  o fetch global e a sincronização da produção): garante que o merge da produção
+  parta do estado remoto atual da branch. A divergência real (ff-only falha, ou
+  falha de rede no pull) **aborta antes de mesclar**, sem salvar estado (re-rodar
+  refaz as concluídas como no-op).
 - **Push é por último**, só ao esvaziar a fila, e só de branches com upstream. Acontece
   *depois* de `clearState()`, então uma falha de push não corrompe o estado de retomada.
 - **Arquivos ignorados** (`repo.ignore`, casados por `matchIgnored`): arquivos gerados

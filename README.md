@@ -90,7 +90,7 @@ Sem `--repo`, se houver mais de um repositório, um prompt de seleção é exibi
 ```bash
 bsync update <repo>     # direto pelo nome
 bsync update            # prompt para escolher o repositório
-bsync update --no-fetch # não sincroniza com o remoto antes de mesclar
+bsync update --no-fetch # pula o fetch global/sync da produção (a branch receptora ainda é pull-ada)
 bsync update --no-push  # não faz push ao final (push é o padrão)
 bsync update -m "chore: sync {prod} → {branch}"   # mensagem do merge
 bsync update --explain  # em conflito, usa IA para explicar os conflitos
@@ -103,10 +103,11 @@ O `update`:
 
 1. **`git fetch`** dos remotos e avança a branch de produção (`--ff-only`).
 2. Para cada branch monitorada: faz checkout e, se ela tiver upstream,
-   **sincroniza com o remoto via fast-forward** antes de mesclar. Se a branch
-   **divergiu** do remoto (commits locais e remotos distintos), o comando para
-   com uma mensagem clara, sem mesclar — reconcilie manualmente e rode de novo.
-   Use `--no-fetch` para pular essa sincronização.
+   **sempre faz `git pull --ff-only`** para sincronizá-la com o remoto antes de
+   mesclar — inclusive com `--no-fetch` (essa flag só afeta o fetch global e a
+   sincronização da produção). Se a branch **divergiu** do remoto (commits
+   locais e remotos distintos) ou o pull falhar (ex.: rede), o comando para com
+   uma mensagem clara, sem mesclar — reconcilie manualmente e rode de novo.
 3. Mescla a branch de produção na branch monitorada. Por padrão usa a mensagem
    automática do git (`Merge branch '<prod>' into <branch>`); com
    `-m/--message` você define um template com os placeholders `{branch}` e

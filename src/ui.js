@@ -19,6 +19,15 @@ export const yellow = paint(33, 39);
 export const cyan = paint(36, 39);
 export const gray = paint(90, 39);
 
+// Limpa a tela e o scrollback do terminal entre etapas do revisor, para que as
+// saídas de um arquivo (proposta, diff, marcadores) não se acumulem ao voltar
+// para a lista. No-op quando a saída não é um TTY (pipe/redirecionamento), para
+// preservar o log intacto. `\x1b[2J` limpa a tela, `\x1b[3J` o scrollback e
+// `\x1b[H` reposiciona o cursor no topo.
+export function clearScreen() {
+  if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+}
+
 // Largura útil do terminal, com teto para não gerar caixas gigantes em telas
 // muito largas. Fallback 80 quando não há TTY (saída redirecionada).
 export function termWidth(max = 120) {
