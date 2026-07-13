@@ -43,7 +43,7 @@
     "link:dev": "npm link"
   },
   "dependencies": {
-    "@inquirer/prompts": "^5.5.0",
+    "@inquirer/prompts": "^8.5.2",
     "commander": "^12.1.0",
     "update-notifier": "^7.3.1"
   },
